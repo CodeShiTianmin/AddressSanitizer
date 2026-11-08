@@ -1,0 +1,29 @@
+boardsize 13
+clear_board
+komi 6.5
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+genmove black
+genmove white
+estimate_score
+quit
