@@ -1,0 +1,20 @@
+# downloaded sources, generated inputs and build outputs (re-created by scripts)
+/downloads/
+/src/
+/build/
+/data/
+/scratch/
+*.o
+*.a
+*.so
+__pycache__/
+# LaTeX intermediates
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.bbl
+report/*.blg
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
