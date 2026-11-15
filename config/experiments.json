@@ -1,0 +1,40 @@
+{
+  "_comment": "variant = (build configuration, ASAN_OPTIONS). PAPER options follow Section 4 of the paper.",
+  "asan_options": {
+    "PAPER":   "redzone=32:malloc_context_size=0:quarantine_size_mb=0:detect_leaks=0:detect_stack_use_after_return=0",
+    "DEFAULT": "detect_leaks=0"
+  },
+  "experiments": {
+    "main": {
+      "description": "C1/C2/C3: base vs ASan (reads+writes) vs ASan (writes only), paper settings",
+      "runs": 15,
+      "variants": [
+        {"name": "base",   "build": "base",   "asan_options": ""},
+        {"name": "asan",   "build": "asan",   "asan_options": "PAPER"},
+        {"name": "asanwo", "build": "asanwo", "asan_options": "PAPER"}
+      ]
+    },
+    "controls": {
+      "description": "Controlled re-runs that isolate post-2012 changes in ASan",
+      "runs": 5,
+      "variants": [
+        {"name": "base",         "build": "base",     "asan_options": ""},
+        {"name": "asan",         "build": "asan",     "asan_options": "PAPER"},
+        {"name": "asan-default", "build": "asan",     "asan_options": "DEFAULT"},
+        {"name": "asanlean",     "build": "asanlean", "asan_options": "PAPER"}
+      ]
+    },
+    "redzone": {
+      "description": "Extension: minimum heap redzone size (only factor changed), ASan reads+writes",
+      "runs": 5,
+      "variants": [
+        {"name": "base",  "build": "base", "asan_options": ""},
+        {"name": "rz16",  "build": "asan", "asan_options": "PAPER:redzone=16"},
+        {"name": "rz32",  "build": "asan", "asan_options": "PAPER:redzone=32"},
+        {"name": "rz64",  "build": "asan", "asan_options": "PAPER:redzone=64"},
+        {"name": "rz128", "build": "asan", "asan_options": "PAPER:redzone=128"},
+        {"name": "rz256", "build": "asan", "asan_options": "PAPER:redzone=256"}
+      ]
+    }
+  }
+}
