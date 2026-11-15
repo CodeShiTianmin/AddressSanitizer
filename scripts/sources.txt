@@ -1,0 +1,15 @@
+# name            sha256                                                            url
+bzip2-1.0.8.tar.gz ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269 https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+perl-5.38.2.tar.gz a0a31534451eb7b83c7d6594a497543a54d488bc90ca00f5e34762577f40655e https://www.cpan.org/src/5.0/perl-5.38.2.tar.gz
+lua-5.4.6.tar.gz 7d5ea1b9cb6aa0b59ca3dde1c6adcb57ef83a1ba8e5432c0ecd06bf439b3ad88 https://www.lua.org/ftp/lua-5.4.6.tar.gz
+sqlite-amalgamation-3460000.zip 712a7d09d2a22652fb06a49af516e051979a3984adb067da86760e60ed51a7f5 https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip
+speedtest1.c 81875fcd4bfb76bbf21568f021e81452a72539f76db9982d9114da3bafee22cc https://raw.githubusercontent.com/sqlite/sqlite/version-3.46.0/test/speedtest1.c
+gnugo-3.8.tar.gz da68d7a65f44dcf6ce6e4e630b6f6dd9897249d34425920bfdd4e07ff1866a72 https://ftp.gnu.org/gnu/gnugo/gnugo-3.8.tar.gz
+hmmer-3.4.tar.gz ca70d94fd0cf271bd7063423aabb116d42de533117343a9b27a65c17ff06fbf3 http://eddylab.org/software/hmmer/hmmer-3.4.tar.gz
+stockfish-sf_16.1.tar.gz a5f94793b5d4155310397ba89e9c4266570ef0f24cd47de41a9103556f811b82 https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_16.1.tar.gz
+nn-b1a57edbea57.nnue b1a57edbea574ca8b88d6837473845791beb53d885f87f86d5ccdd5659fbf3b2 https://tests.stockfishchess.org/api/nn/nn-b1a57edbea57.nnue
+nn-baff1ede1f90.nnue baff1ede1f90c1dd1b4f772f1eff29848821801e8186345da7f0eb4121bd6f63 https://tests.stockfishchess.org/api/nn/nn-baff1ede1f90.nnue
+x264-31e19f92.tar.bz2 01a4acb74eea1118c3aa96c3e18ee3384bc1f2bc670f31fb0f63be853e4d9d08 https://code.videolan.org/videolan/x264/-/archive/31e19f92f00c7003fa115047ce50978bc98c3a0d/x264-31e19f92f00c7003fa115047ce50978bc98c3a0d.tar.bz2
+libxml2-2.12.9.tar.xz 59912db536ab56a3996489ea0299768c7bcffe57169f0235e7f962a91f483590 https://download.gnome.org/sources/libxml2/2.12/libxml2-2.12.9.tar.xz
+lulesh-2.0.3.tar.gz 2fc9ef2c4bce00eba2c67b8891deb60ced742bc418e3fc6e4071e78f6ce80d58 https://github.com/LLNL/LULESH/archive/refs/tags/2.0.3.tar.gz
+tramp3d-v4.cpp 6c14dc02ec8ce936d741abd77c00f62caa3b612bfa6f9208ed279251507d8c34 https://raw.githubusercontent.com/llvm/llvm-test-suite/llvmorg-18.1.8/MultiSource/Benchmarks/tramp3d-v4/tramp3d-v4.cpp
