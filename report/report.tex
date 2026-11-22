@@ -1,0 +1,385 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=2.1cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{courier}
+\usepackage[strings]{underscore}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\setlist{nosep,leftmargin=1.3em}
+\captionsetup{font=small,labelfont=bf}
+\input{generated/macros.tex}
+\newcommand{\asan}{ASan}
+\newcommand{\cmd}[1]{\texttt{#1}}
+
+\title{\textbf{Reproducing ``AddressSanitizer: A Fast Address Sanity Checker''}\\[2pt]
+\large CS340 Operating Systems --- Research Paper Replication Report}
+\author{Group 19:\;
+Hua Minqi (1240030798),\; Li Linxuan (1240022141),\; You Te (1240037846)\\[2pt]
+\small Repository: \url{https://github.com/CodeShiTianmin/AddressSanitizer} (tag \texttt{v1.0})}
+\date{December 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+AddressSanitizer (\asan{}) detects out-of-bounds accesses and use-after-free
+bugs in C/C++ programs through compiler instrumentation and shadow memory.
+The paper reports a 73\% average slowdown and a 3.37$\times$ memory increase on
+SPEC CPU2006. We re-measured the performance evaluation (Section~4 of the
+paper) with clang~18.1.3 on 11 open-source programs, seven of which are the
+same program as, or the same kind of application as, a SPEC CPU2006 benchmark.
+For these seven programs the average slowdown is
+\OurMapRW$\pm$\OurMapRWsd$\times$, while their SPEC counterparts average
+\PaperMapRW$\times$ in the paper. Instrumenting only writes gives
+\OurMapWO$\times$ against \PaperMapWO$\times$. Over all 11 programs the
+averages are \OurAvgRW$\times$ (reads and writes) and \OurAvgWO$\times$
+(writes only), above the paper's 1.73$\times$ and 1.26$\times$; this gap
+comes from the workload mix, since the paper's own values for our counterparts
+are also above its average. Under the paper's settings
+the memory increase is \OurMemTotal$\times$ in peak resident memory, much less
+than 3.37$\times$; the paper's own metric (VmPeak) no longer works, because
+current \asan{} reserves 20\,TB of virtual address space at start-up. Binaries
+grow by \CodeMin--\CodeMax$\times$ once the statically linked run-time is
+excluded, close to the paper's 1.5--3.2$\times$. As an extension we varied the
+heap redzone size from 16 to 256 bytes. The total memory increase grows from
+\RzMsixteen$\times$ to \RzMtwofiftysix$\times$, driven by the programs that keep
+many small heap objects live, while the run time changes little except for the
+two most allocation-intensive programs. This supports the paper's
+unquantified remark in its Section~4.3 for memory, and only partly for time.
+\end{abstract}
+
+% ===========================================================================
+\section{Introduction and Claims}\label{sec:intro}
+
+\paragraph{Paper and problem.}
+Memory-safety bugs in C and C++ (buffer overflows on the heap, the stack or in
+globals, and use-after-free) are a major source of crashes and security
+vulnerabilities. Before \asan{}, tools for finding them were either slow
+(Valgrind's Memcheck and Dr.~Memory slow programs down by 10--20$\times$ on
+SPEC~\cite{asan}) or found only some of these bugs (debug allocators with
+guard pages). Serebryany et al.~\cite{asan} make the bugs detectable cheaply in
+three ways:
+\begin{enumerate}
+\item every 8 bytes of application memory map to one byte of \emph{shadow
+memory} (\cmd{Shadow = (Addr >> 3) + Offset}), which records how many of
+those bytes may be accessed;
+\item the compiler inserts a shadow check before every load and store;
+\item a replacement allocator surrounds heap objects with poisoned
+\emph{redzones} (the compiler does the same for stack and global objects) and
+holds freed memory in a FIFO \emph{quarantine}.
+\end{enumerate}
+The checks run inline, so the overhead depends on how much a program accesses
+memory and allocates, which is an OS-level concern (address-space layout,
+virtual memory reservation, allocator design).
+
+\paragraph{Claims tested.}
+\begin{description}[leftmargin=0pt]
+\item[C1 (Figure 2, \S4).] With reads and writes instrumented, \asan{} slows
+SPEC CPU2006 down by 73\% on average (1.73$\times$). The malloc-intensive
+text-processing benchmarks are slowed the most (perlbench 2.60$\times$,
+xalancbmk 2.67$\times$).
+\item[C2 (Figure 2, \S4).] With only writes instrumented, the average slowdown
+drops to 26\%.
+\item[C3 (Tables 1--2, \S4).] Memory use grows by 3.37$\times$, mostly
+because of the malloc redzones. Only a few programs need noticeably more
+stack. Binaries grow by 1.5--3.2$\times$ (2.5$\times$ on average).
+\end{description}
+
+\paragraph{Scope.}
+We reproduce the performance evaluation of Section~4: run time (C1, C2),
+memory, stack and binary size (C3). We use 11 open-source programs whose base
+runs take 2--4\,s, instead of the 19 C/C++ SPEC CPU2006 benchmarks with
+reference inputs. We add controlled re-runs that separate changes made to
+\asan{} since 2012 (\S\ref{sec:analysis}), and one extension, a sweep of the
+heap redzone size (\S\ref{sec:ext}). We do not reproduce:
+\begin{itemize}
+\item the deployment statistics from Chromium (\S4.2);
+\item the measurements of other tools (\S4.1);
+\item the experiment that varies the shadow \emph{Scale} and \emph{Offset}.
+Current \asan{} fixes the shadow scale when its run-time library is built, so
+this experiment would require a custom build of compiler-rt.
+\end{itemize}
+
+% ===========================================================================
+\section{Reproduction Setup}\label{sec:setup}
+
+\paragraph{Starting code.}
+The paper has no separate artifact. \asan{} was merged into LLVM in 2011 and is
+maintained there. We use the unmodified \asan{} of \textbf{clang 18.1.3}
+(Ubuntu package \cmd{1:18.1.3-1ubuntu1}, upstream tag \cmd{llvmorg-18.1.3}).
+Our repository contains only build scripts, workload drivers, a measurement
+harness and analysis code. No source file of \asan{} or of the benchmarked
+programs is modified; the repository's \cmd{README} lists the starting commit
+and the files we wrote. The programs are downloaded from upstream and checked
+against SHA-256 hashes (\cmd{scripts/sources.txt}).
+
+\paragraph{Environment.}
+Builds and runs happen inside a Docker image. Its \cmd{ubuntu:24.04} base is
+pinned by digest and clang by package version (\cmd{Dockerfile}).
+Table~\ref{tab:env} compares our machine with the paper's.
+
+\begin{table}[t]
+\centering\small
+\caption{Environment of the paper and of our runs (ours recorded in \cmd{results/env.txt}).}\label{tab:env}
+\begin{tabularx}{\linewidth}{lXX}
+\toprule
+Item & Paper~\cite{asan} & Ours \\
+\midrule
+Machine & HP Z600, 2$\times$ quad-core Xeon E5620, 24\,GB & KVM virtual machine, Intel Xeon (family 6, model 94), 2 vCPU, 8\,GB \\
+OS / kernel & 64-bit Linux (version not stated) & Ubuntu 24.04 container on Ubuntu 22.04, Linux 6.8.0-1060-aws \\
+Compiler & LLVM/clang of early 2012 (version not stated) & clang 18.1.3, glibc 2.39 \\
+Baseline & \cmd{clang -O2} & \cmd{clang -O2} \\
+Workloads & SPEC CPU2006, 19 C/C++ benchmarks, ref.\ inputs & 11 open-source programs (Table~\ref{tab:workloads}) \\
+Repetitions & not stated & \MainRuns{} (main), \CtrlRuns{} (controls), \RzRuns{} (extension), interleaved \\
+Pinning / ASLR & not stated & \cmd{taskset} to one vCPU; ASLR on (default) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Workloads.}
+SPEC CPU2006 requires a licence that we do not have, so we chose open-source
+programs that resemble the SPEC programs as closely as possible
+(Table~\ref{tab:workloads}):
+\begin{itemize}
+\item four are newer releases of the same programs that SPEC packages
+(\cmd{perl}, \cmd{bzip2}, \cmd{gnugo}, \cmd{hmmer});
+\item three come from the same application domain as a SPEC benchmark: a chess
+engine, an H.264 encoder and an XML processor;
+\item two are C++ floating-point codes (\cmd{tramp3d}, \cmd{lulesh}), which we
+compare to dealII and milc only loosely;
+\item two have no SPEC counterpart (a Lua interpreter and SQLite).
+\end{itemize}
+The ``7 counterparts'' rows in our tables average over \cmd{perl},
+\cmd{bzip2}, \cmd{gnugo}, \cmd{hmmer}, \cmd{stockfish}, \cmd{x264} and
+\cmd{libxml2}. All inputs are generated deterministically
+(\cmd{scripts/gen_inputs.py}, fixed seed) or taken from the pinned source
+archives.
+
+\begin{table}[t]
+\centering\small
+\caption{Workloads. Base run times are in Table~\ref{tab:time}.}\label{tab:workloads}
+\begin{tabularx}{\linewidth}{lllX}
+\toprule
+Ours & Version & SPEC CPU2006 counterpart & Workload \\
+\midrule
+\cmd{perl} (miniperl) & 5.38.2 & 400.perlbench (same program) & regexes, hashes, sorting over 6\,MB of Perl source text \\
+\cmd{bzip2} & 1.0.8 & 401.bzip2 (same program) & \cmd{-9} compress + decompress 24\,MB of mixed text/binary \\
+\cmd{gnugo} & 3.8 & 445.gobmk (same program) & GTP self-play, 13$\times$13, 24 moves, level 8 \\
+\cmd{hmmer} & 3.4 & 456.hmmer (same program) & \cmd{hmmbuild} (Pkinase) + \cmd{hmmsearch --max} over 8000 random proteins \\
+\cmd{stockfish} & 16.1 & 458.sjeng (chess engine) & \cmd{bench 16 1 14} (1 thread, depth 14) \\
+\cmd{x264} & 31e19f92 & 464.h264ref (H.264 encoder) & 150 CIF frames, preset medium, C code only (\cmd{--disable-asm}) \\
+\cmd{libxml2} & 2.12.9 & 483.xalancbmk (XML processing) & \cmd{xmllint --format} + XPath query on 40\,MB XML \\
+\cmd{tramp3d} & test-suite 18.1.8 & (447.dealII, C++ templates) & \cmd{-n 100 --domain 40 40 40} \\
+\cmd{lulesh} & 2.0.3 & (433.milc, FP physics) & \cmd{-s 30 -i 150}, serial \\
+\cmd{lua} & 5.4.6 & -- (interpreter) & binary-trees, fannkuch, string building, spectral-norm \\
+\cmd{sqlite} & 3.46.0 & -- (database) & \cmd{speedtest1 --memdb --size 120} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Configurations and measurement.}
+Every program is built with its own build system in the four
+configurations defined in \cmd{config/build_configs.sh}:
+\begin{itemize}
+\item \cmd{base}: \cmd{-O2}.
+\item \cmd{asan}: \cmd{-O2 -fsanitize=address}.
+\item \cmd{asanwo}: additionally \cmd{-mllvm -asan-instrument-reads=false},
+so only writes are checked.
+\item \cmd{asanlean}: a control build without two instrumentation features
+added after 2012, stack-use-after-return support and use-after-scope
+poisoning.
+\end{itemize}
+The paper's run-time settings are used unless stated otherwise (\S4 of the
+paper; \cmd{config/experiments.json}): \cmd{redzone=32},
+\cmd{malloc\_context\_size=0} (no stack unwinding in malloc/free),
+\cmd{quarantine\_size\_mb=0}, and \cmd{detect\_leaks=0} and
+\cmd{detect\_stack\_use\_after\_return=0} for two features that did not exist
+in 2012.
+
+The harness (\cmd{scripts/run_experiments.py}) works as follows:
+\begin{itemize}
+\item every run is pinned to one vCPU, and one unrecorded warm-up run is made
+per program;
+\item within each repetition, every program runs once in every variant, and
+the order of the variants rotates from one repetition to the next;
+\item we record wall-clock time and, at exit of every process, the
+\cmd{VmPeak}, \cmd{VmHWM} (peak resident set) and \cmd{VmStk} fields of
+\cmd{/proc/self/status}, via a small \cmd{LD\_PRELOAD} library
+(\cmd{harness/procstat.c}). The paper used the same method;
+\item a slowdown is the variant's time divided by the base time of the same
+repetition. We report mean~$\pm$~sample standard deviation over repetitions;
+\item averages over programs are arithmetic means, like the paper's
+``average'' bar: the mean of the 19 bars we digitized from Figure~2 is 1.74,
+against the stated 1.73;
+\item a second \cmd{LD\_PRELOAD} library (\cmd{harness/malloccount.c}) counts
+heap allocations in the base builds.
+\end{itemize}
+Each run appends one JSON record to \cmd{results/raw/<experiment>/runs.jsonl}.
+All tables, figures and numbers in this report are produced from those records
+by \cmd{analysis/analyze.py}.
+
+\paragraph{Deviations.}
+Table~\ref{tab:dev} lists every difference from the paper's setup.
+
+\begin{table}[t]
+\centering\small
+\caption{Deviations from the paper's setup.}\label{tab:dev}
+\begin{tabularx}{\linewidth}{lXXX}
+\toprule
+Item & Paper & Ours & Reason \\
+\midrule
+Benchmarks & 19 SPEC CPU2006 C/C++ & 11 open-source programs, 7 with a SPEC counterpart & SPEC licence not available \\
+Input size & SPEC reference inputs (minutes) & 2--4\,s per base run & 2-vCPU VM; $\geq$5 repetitions of up to 6 variants \\
+Compiler & clang, early 2012 & clang 18.1.3 & the 2012 tool is not stated precisely and does not build with current toolchains; we test whether the claims still hold \\
+Hardware & 8-core Westmere workstation, 24\,GB & 2-vCPU KVM VM, 8\,GB & machine available to us \\
+Redzone & 32\,B & \cmd{redzone=32} is now a \emph{minimum}; larger chunks get larger redzones & option semantics changed \\
+Newer features & not present & leak checking and stack-use-after-return off at run time; use-after-scope and UAR hooks still compiled in & isolated by the \cmd{asanlean} control (\S\ref{sec:analysis}) \\
+Memory metric & VmPeak & VmHWM (peak RSS); VmPeak also recorded & \asan{} now reserves $\approx$20\,TB of virtual shadow memory, so VmPeak is $\approx$20\,TB for every program \\
+Writes-only mode & flag not stated & \cmd{-mllvm} \cmd{-asan-instrument-\allowbreak{}reads=false} & current equivalent \\
+Multi-process runs & single process & \cmd{bzip2}, \cmd{hmmer}, \cmd{libxml2} run two commands; time summed, memory = maximum over processes & SPEC-like input sets \\
+Perl & full perl, static & \cmd{miniperl} (no dynamic loading) & avoids loading instrumented shared objects; same interpreter core \\
+Scale/Offset study & Scale 3--7, Offset 0 & not reproduced & shadow scale is fixed when the run-time is built \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ===========================================================================
+\section{Results}\label{sec:results}
+
+\paragraph{Run time (C1, C2).}
+Table~\ref{tab:time} and Figure~\ref{fig:slowdown} compare our slowdowns with
+the paper's. Over all 11 programs \asan{} slows execution down by
+\OurAvgRW$\pm$\OurAvgRWsd$\times$ (\OurAvgRWpct\%; geometric mean
+\OurGeoRW$\times$). Checking only writes gives
+\OurAvgWO$\pm$\OurAvgWOsd$\times$ (\OurAvgWOpct\%). For the seven programs
+with a SPEC counterpart, the averages are \OurMapRW$\pm$\OurMapRWsd$\times$
+and \OurMapWO$\pm$\OurMapWOsd$\times$; the paper's values for the same seven
+SPEC benchmarks are \PaperMapRW$\times$ and \PaperMapWO$\times$. The largest
+slowdowns are for \cmd{\TopOneName} (\TopOne$\times$) and \cmd{\TopTwoName}
+(\TopTwo$\times$), and the smallest for \cmd{\MinName} (\MinVal$\times$).
+
+\begin{table}[t]
+\centering\small
+\caption{Paper vs.\ Ours: slowdown relative to \cmd{clang -O2} (mean $\pm$
+s.d.\ over \MainRuns{} runs). ``Paper'' columns are read from Figure~2
+($\pm$0.03), except the exact values given in the text (perlbench 2.60,
+xalancbmk 2.67, averages 1.73/1.26). R+W = reads and writes instrumented,
+W = writes only. Raw data: \cmd{results/raw/main/runs.jsonl}.}\label{tab:time}
+\input{generated/tab_time.tex}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_slowdown.pdf}
+\caption{Our slowdowns in the style of the paper's Figure~2 (error bars: s.d.\
+over \MainRuns{} runs). Markers show the paper's values for the SPEC
+counterpart of each program.}\label{fig:slowdown}
+\end{figure}
+
+\paragraph{Memory, stack and binary size (C3).}
+Table~\ref{tab:mem} and Figure~\ref{fig:mem} show peak memory. Summed over
+all programs, as in the ``total'' row of the paper's Table~1, peak resident
+memory grows by \OurMemTotal$\times$ (\OurMemMapTotal$\times$ for the seven
+counterparts, whose SPEC versions grow by \PaperMemMapTotal$\times$ in the
+paper). The mean of the per-program ratios is
+\OurMemAvg$\pm$\OurMemAvgsd$\times$. Every \asan{} process has a VmPeak of
+\VmPeakAsanTB\,TB. Stack size (Table~\ref{tab:stack}) changes by more than 5\%
+for \StackNoticeable{} of the 11 programs. The program code itself (excluding
+the \RuntimeKB\,KB statically linked \asan{} run-time) grows by
+\CodeMin--\CodeMax$\times$, \CodeAvg$\times$ on average
+(Table~\ref{tab:bin}); the paper reports 1.5--3.2$\times$, 2.5$\times$ on
+average.
+
+\begin{table}[t]
+\centering\small
+\caption{Paper vs.\ Ours: peak memory in MB (VmHWM, mean over \MainRuns{}
+runs) and VmPeak, \asan{} with the paper's settings. ``Paper incr.'' is the
+Table~1 ratio (VmPeak) of the SPEC counterpart. Raw data:
+\cmd{results/raw/main/runs.jsonl}, field \cmd{procs}.}\label{tab:mem}
+\input{generated/tab_memory.tex}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_memory.pdf}
+\caption{Memory increase: ours (peak RSS, error bars: s.d.) vs.\ paper
+Table~1 (VmPeak) for the SPEC counterpart. Log scale.}\label{fig:mem}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\caption{Stack (VmStk at exit, KB, mean). Paper: Table~2.}\label{tab:stack}
+\input{generated/tab_stack.tex}
+\end{table}
+\begin{table}[t]
+\centering\small
+\caption{Code size (\cmd{.text}). ``Excl.\ run-time'' subtracts the
+\asan{} run-time (measured on an empty program); for \cmd{stockfish}, the
+\NnueMB\,MB of embedded network weights are excluded from both builds. Raw
+data: \cmd{results/raw/binsize/}.}\label{tab:bin}
+\input{generated/tab_binsize.tex}
+\end{table}
+
+% ===========================================================================
+\section{Analysis of Discrepancies}\label{sec:analysis}
+
+\input{analysis_text.tex}
+
+% ===========================================================================
+\section{Extension: Heap Redzone Size}\label{sec:ext}
+
+\input{extension_text.tex}
+
+% ===========================================================================
+\section{Conclusion}\label{sec:concl}
+
+\input{conclusion_text.tex}
+
+% ===========================================================================
+\section*{Contribution Statement}
+Each member's commits carry their student ID and name in the message; the Git
+history of the repository shows the split below.
+\begin{itemize}
+\item \textbf{Hua Minqi (1240030798)}: experiment environment and builds:
+\cmd{Dockerfile}, \cmd{Makefile}, source download and verification
+(\cmd{scripts/fetch.sh}, \cmd{scripts/sources.txt}), the per-benchmark build
+scripts and the four build configurations (\cmd{config/build\_configs.sh}),
+environment recording, README and third-party licences.
+\item \textbf{Li Linxuan (1240022141)}: workloads and measurement: input
+generator (\cmd{scripts/gen\_inputs.py}), run scripts of the 11 programs, the
+measurement harness (\cmd{scripts/run\_experiments.py},
+\cmd{harness/procstat.c}, \cmd{harness/malloccount.c}), the experiment matrix
+(\cmd{config/experiments.json}), and running the main, control and extension
+experiments (\cmd{results/raw/}).
+\item \textbf{You Te (1240037846)}: analysis and report: paper reference data
+(\cmd{analysis/paper\_data.py}), analysis and plotting
+(\cmd{analysis/analyze.py}), discrepancy analysis, the extension design and
+this report.
+\end{itemize}
+
+\section*{AI Usage Statement}
+We leverage artificial intelligence to systematically organize and analyze complex project data, transforming raw datasets into structured, actionable insights. Through intelligent code parsing and algorithmic evaluation, the AI extracts core logic, identifies architectural bottlenecks, and assesses technical feasibility with high accuracy. Based on this comprehensive analysis, it autonomously generates tailored design proposals that align with project objectives, system requirements, and engineering best practices. This end-to-end workflow not only accelerates the technical assessment and architecture phases but also ensures consistency, scalability, and data-driven decision-making throughout the project development lifecycle.
+
+\begin{thebibliography}{9}\small
+\bibitem{asan} K.~Serebryany, D.~Bruening, A.~Potapenko, D.~Vyukov.
+\newblock AddressSanitizer: A Fast Address Sanity Checker.
+\newblock In \emph{USENIX Annual Technical Conference (ATC)}, 2012.
+\bibitem{asandoc} The Clang Team. \emph{AddressSanitizer} (Clang 18 documentation).
+\newblock \url{https://releases.llvm.org/18.1.0/tools/clang/docs/AddressSanitizer.html}.
+\bibitem{asanflags} Google Sanitizers wiki. \emph{AddressSanitizerFlags} (run-time options).
+\newblock \url{https://github.com/google/sanitizers/wiki/AddressSanitizerFlags}.
+\bibitem{spec} J.~L.~Henning. SPEC CPU2006 Benchmark Descriptions.
+\newblock \emph{ACM SIGARCH Computer Architecture News}, 34(4), 2006.
+\bibitem{lulesh} I.~Karlin, J.~Keasler, R.~Neely. LULESH 2.0 Updates and Changes.
+\newblock Technical Report LLNL-TR-641973, 2013.
+\end{thebibliography}
+\end{document}
