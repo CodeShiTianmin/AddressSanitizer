@@ -1,0 +1,38 @@
+{
+ "experiment": "main",
+ "runs": 5,
+ "cpu": 1,
+ "benches": [
+  "bzip2",
+  "gnugo",
+  "hmmer",
+  "libxml2",
+  "lua",
+  "lulesh",
+  "perl",
+  "sqlite",
+  "stockfish",
+  "tramp3d",
+  "x264"
+ ],
+ "variants": [
+  {
+   "name": "base",
+   "build": "base",
+   "asan_options": ""
+  },
+  {
+   "name": "asan",
+   "build": "asan",
+   "asan_options": "PAPER"
+  },
+  {
+   "name": "asanwo",
+   "build": "asanwo",
+   "asan_options": "PAPER"
+  }
+ ],
+ "host": "61ca6e813db2",
+ "kernel": "6.8.0-1060-aws",
+ "started": "2026-11-08T05:16:13+00:00"
+}
