@@ -1,0 +1,53 @@
+{
+ "experiment": "redzone",
+ "runs": 5,
+ "cpu": 1,
+ "benches": [
+  "bzip2",
+  "gnugo",
+  "hmmer",
+  "libxml2",
+  "lua",
+  "lulesh",
+  "perl",
+  "sqlite",
+  "stockfish",
+  "tramp3d",
+  "x264"
+ ],
+ "variants": [
+  {
+   "name": "base",
+   "build": "base",
+   "asan_options": ""
+  },
+  {
+   "name": "rz16",
+   "build": "asan",
+   "asan_options": "PAPER:redzone=16"
+  },
+  {
+   "name": "rz32",
+   "build": "asan",
+   "asan_options": "PAPER:redzone=32"
+  },
+  {
+   "name": "rz64",
+   "build": "asan",
+   "asan_options": "PAPER:redzone=64"
+  },
+  {
+   "name": "rz128",
+   "build": "asan",
+   "asan_options": "PAPER:redzone=128"
+  },
+  {
+   "name": "rz256",
+   "build": "asan",
+   "asan_options": "PAPER:redzone=256"
+  }
+ ],
+ "host": "61ca6e813db2",
+ "kernel": "6.8.0-1060-aws",
+ "started": "2026-11-08T05:50:08+00:00"
+}
