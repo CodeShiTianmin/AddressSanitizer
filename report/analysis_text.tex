@@ -1,0 +1,191 @@
+\paragraph{Claim verdicts.}
+Table~\ref{tab:verdict} lists the gap between our results and the paper's for
+each claim, together with our verdict.
+
+\begin{table}[h]
+\centering\small
+\caption{Claim verdicts. Gaps are ours minus the paper's (absolute, relative).}\label{tab:verdict}
+\begin{tabularx}{\linewidth}{lXrrrX}
+\toprule
+Claim & Metric & Paper & Ours & Gap & Verdict \\
+\midrule
+C1 & avg.\ slowdown R+W, 7 counterparts & \PaperMapRW & \OurMapRW$\pm$\OurMapRWsd & \GapRWMap{} (\GapRWMapRel) & \textbf{Supported} (avg.\ only) \\
+   & avg.\ slowdown R+W, all programs & 1.73 & \OurAvgRW$\pm$\OurAvgRWsd & \GapRWAll{} (\GapRWAllRel) & (higher; see text) \\
+   & perl / XML slowdown & 2.60 / 2.67 & \RWPerl{} / \RWLibxml & \GapPerl{} / \GapXml & perl yes, XML lower \\
+C2 & avg.\ slowdown W, 7 counterparts & \PaperMapWO & \OurMapWO$\pm$\OurMapWOsd & \GapWOMap{} (\GapWOMapRel) & \textbf{Supported} \\
+   & avg.\ slowdown W, all programs & 1.26 & \OurAvgWO$\pm$\OurAvgWOsd & \GapWOAll{} (\GapWOAllRel) & (higher; see text) \\
+C3 & memory increase (total) & 3.37 & \OurMemTotal & \GapMem{} (\GapMemRel) & \textbf{Not supported} (magnitude) \\
+   & stack $>$5\% larger for few programs & 4 of 19 & \StackNoticeable{} of 11 & -- & \textbf{Supported} \\
+   & binary size (code) & 1.5--3.2, avg 2.5 & \CodeMin--\CodeMax, avg \CodeAvg & -- & \textbf{Supported} (slightly larger) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{C1: the slowdown is reproduced for comparable programs.}
+For the seven programs with a SPEC counterpart, our average slowdown
+(\OurMapRW$\times$) is within \GapRWMapRel{} of the paper's value for the same
+seven benchmarks (\PaperMapRW$\times$). The average over all 11 programs is
+\GapRWAllRel{} higher than the paper's 73\%. This gap is a property of the
+workload mix, not of the tool. Even in the paper, the seven SPEC programs we
+chose average \PaperMapRW$\times$, well above its 19-program mean of
+1.73$\times$: we picked the best-known programs, and they include the paper's
+two worst cases, while the cheapest SPEC programs (libquantum 1.08$\times$,
+omnetpp 1.40$\times$, lbm 1.42$\times$) have no counterpart in our set. Our
+four other programs add two bytecode interpreters (\cmd{lua} \RWLua$\times$,
+\cmd{sqlite} \RWSqlite$\times$) and a template-heavy C++ code (\cmd{tramp3d}
+\RWTrampd$\times$), which are all slowed more than the paper's average.
+
+The paper explains its two worst cases by malloc intensity and many small
+memory accesses. We tested this explanation by counting heap allocations in
+the base builds (Table~\ref{tab:alloc}). The rank correlation between
+allocation rate and slowdown is $\rho=\AllocSpearman$. The two most slowed
+programs (\cmd{perl}, \cmd{lua}) are both among the \NumHiAlloc{} programs
+with more than $10^6$ allocations/s; \cmd{libxml2} is the exception, discussed
+below.
+
+\paragraph{Per-program agreement is weaker than the average.}
+The match of the seven-program average partly results from errors that
+cancel. \cmd{stockfish} (\RWStockfish$\times$ against 1.60$\times$ for sjeng)
+and \cmd{x264} (\RWX$\times$ against 1.46$\times$ for h264ref) are much slower
+than their counterparts. \cmd{bzip2}, \cmd{hmmer} and \cmd{libxml2} are faster
+than theirs. Only \cmd{perl} and \cmd{gnugo} are within about 0.2 of the
+paper. We think the large gaps come from how the programs are built, but we
+did not test this:
+\begin{itemize}
+\item \cmd{x264} is compiled with \cmd{--disable-asm}, so its hand-written
+SIMD kernels are replaced by C loops that \asan{} instruments;
+\item \cmd{stockfish} spends its time in a vectorised (AVX2) neural-network
+evaluation with dense array accesses, unlike the 2006 sjeng;
+\item \cmd{libxml2} is a different program from Xalan, discussed next.
+\end{itemize}
+The paper's claim is about the SPEC average, and our like-for-like average
+agrees with it. Its per-benchmark bars cannot be reproduced with substitute
+programs.
+
+The clearest miss is the paper's worst case, xalancbmk. Its counterpart
+\cmd{libxml2} is slowed \RWLibxml$\times$, against 2.67$\times$. libxml2 is the
+same kind of application but a different program: it is written in C, not
+template-heavy C++, and probably allocates fewer objects per byte of input
+than Xalan. The comparison is therefore domain-level only, and we do not count
+it as a contradiction.
+
+\begin{table}[h]
+\centering\small
+\caption{Allocation profile of the base builds (\cmd{harness/malloccount.c},
+\cmd{results/raw/malloc-profile/}) and slowdown (Table~\ref{tab:time}).}\label{tab:alloc}
+\input{generated/tab_alloc.tex}
+\end{table}
+
+\paragraph{C2: removing read checks helps less for allocation-heavy programs.}
+For the seven counterparts, writes-only instrumentation gives \OurMapWO$\times$
+against \PaperMapWO$\times$ in the paper. Over all programs, the writes-only
+mode keeps \WOShare\% of the full overhead, against \PaperWOShare\% in the
+paper. The share depends on allocation intensity:
+\begin{itemize}
+\item for the \NumHiAlloc{} programs with more than $10^6$ allocations/s, it
+is \WOShareHi\%;
+\item for the others, it is \WOShareLo\%.
+\end{itemize}
+This is expected. Disabling read checks does not remove the work that \asan{}
+does on every \cmd{malloc} and \cmd{free}: a slower allocator, plus poisoning
+and unpoisoning the redzones in shadow memory. The rank correlation between
+allocation rate and writes-only slowdown is $\rho=\AllocSpearmanWO$, even
+stronger than for C1.
+
+\paragraph{C3: memory, a measurement-method gap.}
+The paper's metric no longer works. Current \asan{} reserves its whole shadow
+region (about 20\,TB of virtual address space, mapped with
+\cmd{MAP\_NORESERVE}) at start-up, so VmPeak is \VmPeakAsanTB\,TB for every
+instrumented process (Table~\ref{tab:mem}). We therefore compare peak resident
+memory (VmHWM). It grows \OurMemTotal$\times$ in total, much less than the
+paper's 3.37$\times$. Two pieces of evidence explain this:
+\begin{enumerate}
+\item \emph{Constant overheads dominate small programs.} The paper's largest
+ratios come from benchmarks with tiny footprints (povray 17$\rightarrow$371\,MB,
+hmmer 33$\rightarrow$582\,MB), which indicates an additive cost of hundreds of
+MB per process in the 2012 implementation (Table~1 of the paper). Measured
+the same way, our additive cost is a few MB (e.g.\ +\MemAddHmmer\,MB for
+\cmd{hmmer}, +\MemAddBzip\,MB for \cmd{bzip2}). Our ratio is largest for the
+smallest program (\cmd{hmmer}, \MemHmmer$\times$) and smallest where large
+buffers dominate (\cmd{stockfish} \MemStockfish$\times$, \cmd{x264}
+\MemX$\times$). The pattern matches the paper's; only the constant has
+shrunk.
+\item \emph{Run-time settings matter more than instrumentation.} With
+today's default options (256\,MB quarantine, 30-frame allocation stack traces,
+16-byte minimum redzone), the total increase is \CtrlMemDefault$\times$, and
+up to \CtrlMemDefMax$\times$ for \cmd{\CtrlMemDefMaxName}
+(Table~\ref{tab:controls}). The paper excludes the quarantine (``constant-size
+overhead \dots{} which we did not count''), and so do we, using
+\cmd{quarantine\_size\_mb=0}.
+\end{enumerate}
+Whether redzones are the main \emph{variable} part of the overhead is tested
+in \S\ref{sec:ext}.
+
+The stack result agrees with the paper. Only \cmd{gnugo} grows noticeably
+(1.30$\times$, against 1.43$\times$ for gobmk). Our \cmd{perl} shows no change,
+whereas perlbench grows 3.06$\times$; the most likely reason is that our
+workload recurses much less than SPEC's mail-processing inputs. Code growth,
+once the constant \RuntimeKB\,KB run-time is excluded, matches the paper's
+range.
+
+\paragraph{Controlled re-runs: what changed since 2012?}
+Table~\ref{tab:controls} varies one factor at a time, relative to the
+\cmd{asan} variant (\CtrlRuns{} runs).
+\begin{itemize}
+\item \emph{Today's default run-time options} raise the average slowdown by
+\CtrlDefDelta. Most of the increase falls on allocation-heavy programs
+(\cmd{perl} \CtrlPapPerl$\rightarrow$\CtrlDefPerl$\times$, \cmd{lua}
+\CtrlPapLua$\rightarrow$\CtrlDefLua$\times$), because collecting a stack trace
+at every \cmd{malloc}/\cmd{free} is expensive. A reproduction that leaves the
+options at their defaults would therefore report a larger slowdown than the
+paper for reasons unrelated to the instrumentation.
+\item \emph{Removing post-2012 instrumentation} (\cmd{asanlean}: no
+use-after-scope poisoning, no stack-use-after-return hooks) lowers the average
+by only \CtrlLeanDelta, which is within run-to-run noise. Twelve years of
+compiler changes have thus left the cost of the core instrumentation roughly
+where the paper measured it.
+\end{itemize}
+
+\begin{table}[h]
+\centering\small
+\caption{Controlled re-runs: slowdown (mean $\pm$ s.d., \CtrlRuns{} runs) and
+memory increase (total peak RSS). ``paper opts'' = \cmd{asan} build with the
+paper's options; ``default opts'' = same binary with today's defaults; ``lean
+build'' = without use-after-scope and stack-use-after-return
+instrumentation. Raw data: \cmd{results/raw/controls/}.}\label{tab:controls}
+\input{generated/tab_controls.tex}
+\end{table}
+
+\paragraph{Measurement noise.}
+Our machine is a cloud VM, and the hypervisor regularly runs other tenants on
+our vCPU (``steal'' time in \cmd{/proc/stat}). The median coefficient of
+variation of the base run times is \MedBaseCV\%, so per-program standard
+deviations are large (up to \MaxRWsd). Two checks show that the averages are
+robust to this noise:
+\begin{itemize}
+\item computing slowdowns from medians instead of means gives
+\MedianAvgRW$\times$ / \MedianAvgWO$\times$;
+\item in the \StealRuns{} repetitions where we recorded per-run steal time
+(\StealPct\% of wall time on average, up to \StealMaxPct\%), subtracting
+steal from wall time gives an average R+W slowdown of
+\StealAdjRW$\pm$\StealAdjRWsd$\times$, against \StealRawRW$\times$
+unadjusted, and lowers the median coefficient of variation of base run
+times from \StealCVraw\% to \StealCVadj\%.
+\end{itemize}
+
+\paragraph{Limitations.}
+\begin{itemize}
+\item We did not run SPEC CPU2006. Agreement on ``counterparts'' shows that
+the claims hold for similar programs, not that the paper's exact numbers are
+reproduced.
+\item Inputs are short (2--4\,s base). Start-up costs, which \asan{} pays on
+every run (shadow reservation, allocator set-up), weigh more than with
+minutes-long SPEC runs.
+\item We used one 2-vCPU VM with noisy neighbours and one compiler version,
+on x86-64 only.
+\item The 2012 tool could not be rebuilt, so we cannot separate ``different
+\asan{}'' from ``different workloads'' completely. The \cmd{asanlean} control
+removes only the features we know about.
+\item The paper's per-benchmark values are digitized ($\pm$0.03), and its
+memory metric could not be applied.
+\end{itemize}

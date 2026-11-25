@@ -1,0 +1,27 @@
+\paragraph{Overall verdict.}
+\emph{Partially reproduced}. With today's \asan{}, the average run-time claims (C1,
+C2) and the stack and binary-size claims hold for programs comparable to the
+paper's, while the 3.37$\times$ memory increase does not: we measure
+\OurMemTotal$\times$ in peak resident memory, and the paper's VmPeak metric no
+longer applies.
+
+\paragraph{Lessons learned.}
+\begin{itemize}
+\item \emph{Settings matter as much as the mechanism.} Run-time options
+(quarantine, allocation stack traces, redzone size) changed our slowdown by
+up to \CtrlDefDelta{} on average and our memory increase by a factor of
+almost three. A reproduction has to copy these settings, not just the
+compiler flag.
+\item \emph{Metrics age.} VmPeak was a sensible memory metric in 2012; with
+today's 20\,TB shadow reservation it measures nothing. We had to justify a
+replacement (VmHWM) and record both.
+\item \emph{Workload composition drives the averages.} The slowdown is
+largely explained by allocation rate. Our 11-program average is
+\GapRWAllRel{} above the paper's headline number, but the like-for-like
+comparison with the same seven SPEC programs agrees to within
+\GapRWMapRel. A headline average is only meaningful together with the
+program set it was computed on.
+\item \emph{Cloud VMs are noisy.} Steal time of up to \StealMaxPct\% of a run made
+interleaved repetitions, medians and steal accounting necessary before any
+average could be trusted.
+\end{itemize}
